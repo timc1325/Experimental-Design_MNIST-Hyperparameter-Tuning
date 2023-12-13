@@ -1,0 +1,170 @@
+---
+title: "STATS 419 HW 2"
+date: "Oct 18 2022"
+author: "Song, Chen, Chen"
+output:
+  pdf_document:
+    toc: yes
+    latex_engine: xelatex
+  html_document:
+    theme: readable
+    toc: yes
+linkcolor: blue
+urlcolor: blue
+citecolor: blue
+---
+
+\newpage
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message = FALSE, warning = FALSE, fig.width = 4, fig.height = 2.8)
+```
+
+```{r}
+# load the necessary packages
+library(tidyverse)
+library(lmtest)
+library(data.table)
+select <- dplyr::select
+```
+
+# Question 1
+
+# Model
+
+```{r}
+temp<- read_csv("ed.csv") %>% 
+  rename("A" = Optimizer) %>% 
+  rename("B" = "batch size") %>% 
+  rename("C" = "layer") %>% 
+  rename("D" = "learning rate") %>% 
+  mutate(A= ifelse(A=="Adam",1,-1)) %>% 
+  mutate(B= ifelse(B==32,1,-1)) %>% 
+  mutate(C= ifelse(C==1,1,-1)) %>% 
+  mutate(D= ifelse(D==0.001,1,-1))
+temp1=rbind(temp,temp)
+temp2=c(rep(1,16),rep(-1,16))
+project_new<- cbind(temp1,c(temp$mlp,temp$cnn),temp2) %>% 
+  select(c(1,2,3,4,7,8),-7,7) %>% 
+  rename(E="temp2") %>% 
+  rename("Accuracy"=`c(temp$mlp, temp$cnn)`)
+```
+
+```{r}
+mod_1 <- lm(Accuracy ~ (A+B+C+D+E)^2, data = project_new)
+summary(mod_1)
+```
+
+```{r fig.height = 3, fig.width = 5}
+#half normal plot code from Professor's website
+halfnormal=function(y, label=F, ...)
+{
+ 	n=length(y)
+ 	x=seq(0.5+0.25/n, 1.0-0.25/n, by=0.5/n)
+ 	x = qnorm(x)
+ 	y = sort(abs(y))
+ 	qqplot(x, y, xlab="half-normal quantiles", ylab="absolute effects", ...)
+ 	if(label) text(x,y, names(y))
+ }
+
+halfnormal(2*mod_1$coef[-1], label = T)
+```
+
+It seems like effects of A,B,D,A:B,A:D,B:D are important effects.
+
+```{r}
+plot(mod_1,c(1,2))
+```
+
+
+
+
+
+```{r}
+# check which is outlier
+which(resid(mod_1) == min(resid(mod_1)))
+# remove outlier(now first replicate has 15 runs, second replicate has 16 runs)
+mod_2 <- lm(Accuracy ~ (A+B+D+E)^2, data = project_new[-c(7,21,23),])
+summary(mod_2)
+```
+```{r}
+plot(mod_2)
+```
+
+From the residual plot, we would say that the residuals are not constant across each fitted values. It seems that residuals grows when fitted values increase. We will test the constant variance assumption again use the Breusch-Pagan Test.
+
+```{r}
+bptest(mod_2)
+```
+
+The p-value is higher than 0.05, 
+
+so at 5% significance level, we failed to reject the null hypothesis and concluded that the residuals are constant across each fitted values and the homoskedasticity assumption is not violated.
+
+
+
+# Follow-Up Experiment
+
+```{r}
+followup <- read_csv("followup.csv") %>% 
+  select(1,2,3,4,10,12) %>% 
+  rename("A"=`batch size`) %>% 
+  rename("B"=`middle layer`) %>% 
+  rename("C"=`learning rate`) %>% 
+  rename("ybar"="Mean") 
+followup
+```
+
+```{r}
+newmod <- lm(ybar~(A+B+C)^2+I(A^2)+I(B^2)+I(C^2),followup)
+summary(newmod)
+halfnormal(2*newmod$coef[-1], label = T)
+```
+
+```{r}
+newmod1 <- lm(ybar~(A+C)^2+I(A^2)+I(C^2),followup)
+summary(newmod1)
+```
+
+
+```{r}
+halfnormal(2*newmod1$coef[-1], label = T)
+plot(newmod1,c(1,2))
+
+newm <- lm(ybar~(A+C)^2+I(A^2)+I(C^2),followup[-4,])
+summary(newm)
+plot(newm, c(1,2))
+```
+
+
+```{r}
+#surface methodology contour plot 
+c=seq(-2, 2, .01)
+a=seq(-2, 2, .01)
+f=function(a,c) 95.9752 + 3.0882 *a - 3.0375*c- 1.6699*a^2 + 2.9835*a*c-0.3944*c^2
+z=outer(a,c,f)
+filled.contour(a*40+80,c*0.01+0.02, z,nlevels=15,ylab="Learning Rate",xlab="Batch Size")
+filled.contour(a,c, z,nlevels=15,ylab="C",xlab="A")
+m = cbind(c(3.0882,- 3.0375))
+m1 = matrix(c(- 1.6699,2.9835/2,2.9835/2,-0.3944),nrow=2,byrow = T)
+
+c1 = -0.5*solve(m1) %*%m
+c1
+```
+
+
+```{r}
+#interaction plot
+mine = read_csv("experiment result.csv")
+Optimizer = mine$Optimizer
+Learning_Rate = mine$`learning rate`
+Batch = mine$`batch size`
+Layer = mine$layer
+Type = mine$Type
+Accuracy = mine$Accuracy
+interaction.plot(Optimizer,Learning_Rate,Accuracy)
+interaction.plot(Optimizer,Batch,Accuracy)
+interaction.plot(Optimizer,Layer,Accuracy)
+interaction.plot(Optimizer,Type,Accuracy)
+interaction.plot(Learning_Rate,Type,Accuracy)
+```
